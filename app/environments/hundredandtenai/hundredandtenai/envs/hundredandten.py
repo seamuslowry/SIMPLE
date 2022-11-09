@@ -54,7 +54,7 @@ class HundredAndTenEnv(Env):
 
     def __init__(self, verbose = False, manual = False):
         super(HundredAndTenEnv, self).__init__()
-        self.name = 'hundredandten'
+        self.name = 'hundredandtenai'
         self.manual = manual
 
         self.game = HundredAndTen()

@@ -1,7 +1,7 @@
 from setuptools import setup, find_packages
 
 setup(
-    name='hundredandten',
+    name='hundredandtenai',
     version='0.1.0',
     description='HundredAndTen Gym Environment',
     packages=find_packages(),
