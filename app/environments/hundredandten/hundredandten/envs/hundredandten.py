@@ -3,7 +3,7 @@ from enum import IntEnum
 from gym import Env, spaces
 import numpy as np
 
-from hundredandten import HundredAndTen, GameStatus, deck, RoundStatus, BidAmount, Play, Bid, Discard, SelectTrump, SelectableSuit
+from hundredandten import HundredAndTen, constants, GameStatus, deck, RoundStatus, BidAmount, Play, Bid, Discard, SelectTrump, SelectableSuit
 
 from stable_baselines import logger
 
@@ -26,6 +26,29 @@ class StaticActions(IntEnum):
 TOTAL_AVAILABLE_ACTIONS = len(deck.cards) + len(StaticActions)
 
 
+TOTAL_OBSERVATIONS = (
+    # cards in play (1)
+    # cards in hand (.5)
+    # cards unknown (0)
+    # cards played (-.5)
+    # cards discarded (-1)
+    len(deck.cards) + 
+    # current bid amount (as percentage of max: 60)
+    1 + 
+    # which player is bidding (relative to them, normalize between [0,1])
+    1 + 
+    # all player's current trick scores (as a percentage of max: 30)
+    4 + 
+    # all player's current scores (as a percentage of max: 165)
+    4 +
+    # what suit is trump (0, .25, .50, .75)
+    1 +
+    # all legal actions
+    TOTAL_AVAILABLE_ACTIONS)
+
+MAX_BID = 60
+MAX_TRICK_SCORE = 30
+
 class HundredAndTenEnv(Env):
     metadata = {'render.modes': ['human']}
 
@@ -45,18 +68,61 @@ class HundredAndTenEnv(Env):
         self.current_player_num = 0
 
         self.action_space = spaces.Discrete(TOTAL_AVAILABLE_ACTIONS)
-        self.observation_space = spaces.Box(0, 1, (0,)) # TODO need to describe observation space
+        self.observation_space = spaces.Box(-1, 1, (TOTAL_OBSERVATIONS,))
         self.verbose = verbose
         self.done = False
 
         
     @property
     def observation(self):
-        obs = np.zeros(([5, 53]))
+        obs = np.zeros(len(deck.cards))
+        active_bidder = self.game.active_round.active_bidder
 
-        ret = obs.flatten()
+        # card observations
+        for card_index in range(len(deck.cards)):
+            card = deck.cards[card_index]
+            # already played is a -.5
+            if card in list(map(lambda p: p.card, [play for plays in map(lambda t: t.plays, self.game.active_round.tricks) for play in plays])):
+                obs[card_index] = -.5
+            # in play is a 1 (do this after already played to overwrite)
+            if card in list(map(lambda p: p.card,self.game.active_round.active_trick.plays)):
+                obs[card_index] = 1
+            # in the player's hand is a .5
+            if card in self.game.active_round.active_player.hand:
+                obs[card_index] = .5
+            # discarded is -1
+            if card in ([discard for discard in self.game.active_round.discards if discard.identifier == self.game.active_round.active_player.identifier] or [Discard('', [])])[0].cards:
+                obs[card_index] = -1
 
-        return ret
+        # current bid amount observation
+        np.append(obs, (self.game.active_round.active_bid or 0) / MAX_BID)
+
+        # current bidding player observation
+        np.append(obs, ((self.current_player_num - int(active_bidder.identifier)) % 2) / 2 if active_bidder else -1)
+
+        # current trick scores observation
+        scores = self.game.active_round.scores
+        np.append(obs, sum(map(lambda s: s.value, [score for score in scores if score.identifier == '0'])) / MAX_TRICK_SCORE)
+        np.append(obs, sum(map(lambda s: s.value, [score for score in scores if score.identifier == '1'])) / MAX_TRICK_SCORE)
+        np.append(obs, sum(map(lambda s: s.value, [score for score in scores if score.identifier == '2'])) / MAX_TRICK_SCORE)
+        np.append(obs, sum(map(lambda s: s.value, [score for score in scores if score.identifier == '3'])) / MAX_TRICK_SCORE)
+
+
+        # current game scores observation
+        game_scores = self.game.scores
+        np.append(obs, game_scores['0'] / constants.WINNING_SCORE)
+        np.append(obs, game_scores['1'] / constants.WINNING_SCORE)
+        np.append(obs, game_scores['2'] / constants.WINNING_SCORE)
+        np.append(obs, game_scores['3'] / constants.WINNING_SCORE)
+
+        # trump observation
+        trump = self.game.active_round.trump
+        np.append(obs, trump.value / 4 if trump else -1)
+
+        # all legal actions observation
+        np.append(obs, self.legal_actions)
+
+        return obs
 
     @property
     def legal_actions(self):
