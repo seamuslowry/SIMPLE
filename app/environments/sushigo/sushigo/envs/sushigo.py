@@ -1,5 +1,5 @@
 
-import gym
+from gym import Env, spaces
 import numpy as np
 
 import config
@@ -8,7 +8,7 @@ from stable_baselines import logger
 
 from .classes import *
 
-class SushiGoEnv(gym.Env):
+class SushiGoEnv(Env):
     metadata = {'render.modes': ['human']}
 
     def __init__(self, verbose = False, manual = False):
@@ -42,8 +42,9 @@ class SushiGoEnv(gym.Env):
 
         self.total_cards = sum([x['count'] for x in self.contents])
 
-        self.action_space = gym.spaces.Discrete(self.card_types + self.card_types * self.card_types)
-        self.observation_space = gym.spaces.Box(0, 1, (self.total_cards * self.total_positions + self.n_players + self.action_space.n ,))
+        self.action_space = spaces.Discrete(self.card_types + self.card_types * self.card_types)
+        self.observation_space = spaces.Box(0, 1, (self.total_cards * self.total_positions + self.n_players + self.action_space.n ,))
+        logger.debug(f'observation_space: {self.observation_space}')
         self.verbose = verbose
 
         
@@ -74,10 +75,15 @@ class SushiGoEnv(gym.Env):
             obs[7][card.id] = 1
         
         ret = obs.flatten()
+
         for p in self.players: # TODO this should be from reference point of the current_player
+            logger.debug(f'ratio: {p.score / self.max_score}')
             ret = np.append(ret, p.score / self.max_score)
 
         ret = np.append(ret, self.legal_actions)
+
+        logger.debug(f'ret: {np.array_str(ret, precision=3)}')
+
 
         return ret
 
