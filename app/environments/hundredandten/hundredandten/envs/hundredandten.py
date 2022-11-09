@@ -144,6 +144,10 @@ class HundredAndTenEnv(Env):
         # reset game
 
         self.game = HundredAndTen()
+        self.game.join('1')
+        self.game.join('2')
+        self.game.join('3')
+        self.game.join('4')
 
         logger.debug(f'\n\n---- NEW GAME ----')
         return self.observation
