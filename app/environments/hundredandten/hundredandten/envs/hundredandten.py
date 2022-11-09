@@ -3,7 +3,7 @@ from enum import IntEnum
 from gym import Env, spaces
 import numpy as np
 
-from hundredandten import HundredAndTen, deck, RoundStatus, BidAmount
+from hundredandten import HundredAndTen, deck, RoundStatus, BidAmount, Play, Bid, Discard, SelectTrump, SelectableSuit
 
 from stable_baselines import logger
 
@@ -11,17 +11,17 @@ from stable_baselines import logger
 # selecting a number that corresponds to a card in the deck
 # indicates an attempt to play that card
 class StaticActions(IntEnum):
-    PASS = len(deck.cards) + 1
-    FIFTEEN = len(deck.cards) + 2
-    TWENTY = len(deck.cards) + 3
-    TWENTY_FIVE = len(deck.cards) + 4
-    THIRTY = len(deck.cards) + 5
-    SHOOT_THE_MOON = len(deck.cards) + 6
-    SELECT_CLUBS = len(deck.cards) + 7
-    SELECT_SPADES = len(deck.cards) + 8
-    SELECT_DIAMONDS = len(deck.cards) + 9
-    SELECT_HEARTS = len(deck.cards) + 10
-    DISCARD = len(deck.cards) + 11
+    PASS = len(deck.cards)
+    FIFTEEN = len(deck.cards) + 1
+    TWENTY = len(deck.cards) + 2
+    TWENTY_FIVE = len(deck.cards) + 3
+    THIRTY = len(deck.cards) + 4
+    SHOOT_THE_MOON = len(deck.cards) + 5
+    SELECT_CLUBS = len(deck.cards) + 6
+    SELECT_SPADES = len(deck.cards) + 7
+    SELECT_DIAMONDS = len(deck.cards) + 8
+    SELECT_HEARTS = len(deck.cards) + 9
+    DISCARD = len(deck.cards) + 10
 
 TOTAL_AVAILABLE_ACTIONS = len(deck.cards) + len(StaticActions)
 
@@ -98,8 +98,45 @@ class HundredAndTenEnv(Env):
 
 
     def step(self, action):
+
+        reward = [0] * self.n_players
+
+        if not isinstance(action, int) or not self.legal_actions[action]:
+            reward = [1.0/(self.n_players-1)] * self.n_players
+            reward[self.current_player_num] = -1
+            return self.observation, reward, True, {}
         
-        # TODO process action
+        # play a card action
+        if action < len(deck.cards):
+            self.game.act(Play(str(self.current_player_num), deck.cards[action]))
+        
+        # bid action
+        if action == StaticActions.PASS:
+            self.game.act(Bid(str(self.current_player_num), BidAmount.PASS))
+        if action == StaticActions.FIFTEEN:
+            self.game.act(Bid(str(self.current_player_num), BidAmount.FIFTEEN))
+        if action == StaticActions.TWENTY:
+            self.game.act(Bid(str(self.current_player_num), BidAmount.TWENTY))
+        if action == StaticActions.TWENTY_FIVE:
+            self.game.act(Bid(str(self.current_player_num), BidAmount.TWENTY_FIVE))
+        if action == StaticActions.THIRTY:
+            self.game.act(Bid(str(self.current_player_num), BidAmount.THIRTY))
+        if action == StaticActions.SHOOT_THE_MOON:
+            self.game.act(Bid(str(self.current_player_num), BidAmount.SHOOT_THE_MOON))
+
+        # select trump action
+        if action == StaticActions.SELECT_CLUBS:
+            self.game.act(SelectTrump(str(self.current_player_num), SelectableSuit.CLUBS))
+        if action == StaticActions.SELECT_DIAMONDS:
+            self.game.act(SelectTrump(str(self.current_player_num), SelectableSuit.DIAMONDS))
+        if action == StaticActions.SELECT_HEARTS:
+            self.game.act(SelectTrump(str(self.current_player_num), SelectableSuit.HEARTS))
+        if action == StaticActions.SELECT_SPADES:
+            self.game.act(SelectTrump(str(self.current_player_num), SelectableSuit.SPADES))
+
+        # discard action
+        if action == StaticActions.DISCARD:
+            self.game.act(Discard(str(self.current_player_num), [card for card in self.game.active_round.active_player.hand if (card.suit != self.game.active_round.trump or not card.always_trump)]))
 
         return self.observation, [], False, {}
 
