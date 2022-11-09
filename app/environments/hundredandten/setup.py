@@ -9,7 +9,7 @@ setup(
         'gym>=0.9.4,<=0.15.7',
         'numpy>=1.13.0',
         'opencv-python>=3.4.2.0',
-        'hundredandten==0.3.0.36.post24'
+        'hundredandten>=0.3.0'
     ]
 )
 
