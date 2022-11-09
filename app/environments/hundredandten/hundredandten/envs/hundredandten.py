@@ -140,7 +140,8 @@ class HundredAndTenEnv(Env):
         if action == StaticActions.DISCARD:
             self.game.act(Discard(str(self.current_player_num), [card for card in self.game.active_round.active_player.hand if (card.suit != self.game.active_round.trump or not card.always_trump)]))
 
-        self.done = self.game.status == GameStatus.WON
+        winner = self.game.winner
+        self.done = bool(winner)
         self.current_player_num = int(self.game.active_round.active_player.identifier)
 
         scores = self.game.scores
@@ -149,6 +150,9 @@ class HundredAndTenEnv(Env):
         reward[1] = scores['1']
         reward[2] = scores['2']
         reward[3] = scores['3']
+
+        if winner:
+            reward[int(winner.identifier)] += 60
 
         return self.observation, reward, self.done, {}
 
