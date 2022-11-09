@@ -92,7 +92,6 @@ class HundredAndTenEnv(Env):
         legal_actions[StaticActions.SELECT_SPADES.value] = selecting_trump
 
         # discards action is only available if the stage is discarding
-        selecting_trump = status == RoundStatus.TRUMP_SELECTION
         legal_actions[StaticActions.DISCARD.value] = status == RoundStatus.DISCARD
         
         return legal_actions.astype(int)
