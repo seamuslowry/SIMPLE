@@ -3,7 +3,7 @@ from enum import IntEnum
 from gym import Env, spaces
 import numpy as np
 
-from hundredandten import HundredAndTen, deck, RoundStatus, BidAmount, Play, Bid, Discard, SelectTrump, SelectableSuit
+from hundredandten import HundredAndTen, GameStatus, deck, RoundStatus, BidAmount, Play, Bid, Discard, SelectTrump, SelectableSuit
 
 from stable_baselines import logger
 
@@ -35,10 +35,11 @@ class HundredAndTenEnv(Env):
         self.manual = manual
 
         self.game = HundredAndTen()
+        self.game.join('0')
         self.game.join('1')
         self.game.join('2')
         self.game.join('3')
-        self.game.join('4')
+        self.game.start_game()
         
         self.n_players = 4
         self.current_player_num = 0
@@ -46,6 +47,7 @@ class HundredAndTenEnv(Env):
         self.action_space = spaces.Discrete(TOTAL_AVAILABLE_ACTIONS)
         self.observation_space = spaces.Box(0, 1, (0,)) # TODO need to describe observation space
         self.verbose = verbose
+        self.done = False
 
         
     @property
@@ -138,16 +140,27 @@ class HundredAndTenEnv(Env):
         if action == StaticActions.DISCARD:
             self.game.act(Discard(str(self.current_player_num), [card for card in self.game.active_round.active_player.hand if (card.suit != self.game.active_round.trump or not card.always_trump)]))
 
-        return self.observation, [], False, {}
+        self.done = self.game.status == GameStatus.WON
+        self.current_player_num = int(self.game.active_round.active_player.identifier)
+
+        scores = self.game.scores
+
+        reward[0] = scores['0']
+        reward[1] = scores['1']
+        reward[2] = scores['2']
+        reward[3] = scores['3']
+
+        return self.observation, reward, self.done, {}
 
     def reset(self):
         # reset game
 
         self.game = HundredAndTen()
+        self.game.join('0')
         self.game.join('1')
         self.game.join('2')
         self.game.join('3')
-        self.game.join('4')
+        self.game.start_game()
 
         logger.debug(f'\n\n---- NEW GAME ----')
         return self.observation
@@ -157,6 +170,26 @@ class HundredAndTenEnv(Env):
         
         if close:
             return
+
+        status = self.game.status
+        active_bid = self.game.active_round.active_bid
+
+        logger.debug(f'\n\n-------STATUS {status}-----------')
+        logger.debug(f"\nIt is Player {self.current_player_num}'s turn to play")
+
+        if status != GameStatus.WON:
+            logger.debug(f'\nActive Bid: {active_bid if active_bid else "N/A"}')
+            logger.debug(f'\nActive Bidder: {self.game.active_round.active_bidder}')
+
+            logger.debug(f'\nPlayer {self.current_player_num}\'s hand')
+            for card in self.game.active_round.active_player.hand:
+                logger.debug(f'\n{card.number.name} of {card.suit.name} (#{deck.cards.index(card)})')
+        else:
+            logger.debug(f'\nWinner: {self.game.winner}')
+            logger.debug(f'\nFinal Scores: {self.game.scores}')
+        
+        if not self.done:
+            logger.debug(f'\nLegal actions: {[i for i,o in enumerate(self.legal_actions) if o != 0]}')
 
     def rules_move(self):
         raise Exception('Rules based agent is not yet implemented for Sushi Go!')
