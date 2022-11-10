@@ -9,7 +9,7 @@ def get_environment(env_name):
             from connect4.envs.connect4 import Connect4Env
             return Connect4Env
         elif env_name in ('hundredandtenai'):
-            from hundredandtenai.envs.hundredandten import HundredAndTenEnv
+            from hundredandtenai.envs.hundredandtenai import HundredAndTenEnv
             return HundredAndTenEnv
         elif env_name in ('sushigo'):
             from sushigo.envs.sushigo import SushiGoEnv
@@ -44,7 +44,7 @@ def get_network_arch(env_name):
         from models.sushigo.models import CustomPolicy
         return CustomPolicy
     elif env_name in ('hundredandtenai'):
-        from models.hundredandten.models import CustomPolicy
+        from models.hundredandtenai.models import CustomPolicy
         return CustomPolicy
     elif env_name in ('butterfly'):
         from models.butterfly.models import CustomPolicy
