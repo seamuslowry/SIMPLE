@@ -44,7 +44,6 @@ class SushiGoEnv(Env):
 
         self.action_space = spaces.Discrete(self.card_types + self.card_types * self.card_types)
         self.observation_space = spaces.Box(0, 1, (self.total_cards * self.total_positions + self.n_players + self.action_space.n ,))
-        logger.debug(f'observation_space: {self.observation_space}')
         self.verbose = verbose
 
         
@@ -77,13 +76,9 @@ class SushiGoEnv(Env):
         ret = obs.flatten()
 
         for p in self.players: # TODO this should be from reference point of the current_player
-            logger.debug(f'ratio: {p.score / self.max_score}')
             ret = np.append(ret, p.score / self.max_score)
 
         ret = np.append(ret, self.legal_actions)
-
-        logger.debug(f'ret: {np.array_str(ret, precision=3)}')
-
 
         return ret
 

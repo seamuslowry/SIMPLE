@@ -25,7 +25,6 @@ class StaticActions(IntEnum):
 
 TOTAL_AVAILABLE_ACTIONS = len(deck.cards) + len(StaticActions)
 
-
 TOTAL_OBSERVATIONS = (
     # cards in play (1)
     # cards in hand (.5)
@@ -65,7 +64,7 @@ class HundredAndTenEnv(Env):
         self.game.start_game()
         
         self.n_players = 4
-        self.current_player_num = 0
+        self.current_player_num = int(self.game.active_round.active_player.identifier)
 
         self.action_space = spaces.Discrete(TOTAL_AVAILABLE_ACTIONS)
         self.observation_space = spaces.Box(-1, 1, (TOTAL_OBSERVATIONS,))
@@ -81,11 +80,14 @@ class HundredAndTenEnv(Env):
         # card observations
         for card_index in range(len(deck.cards)):
             card = deck.cards[card_index]
+            if self.done:
+                continue
+
             # already played is a -.5
             if card in list(map(lambda p: p.card, [play for plays in map(lambda t: t.plays, self.game.active_round.tricks) for play in plays])):
                 obs[card_index] = -.5
             # in play is a 1 (do this after already played to overwrite)
-            if card in list(map(lambda p: p.card,self.game.active_round.active_trick.plays)):
+            if self.game.active_round.tricks and card in list(map(lambda p: p.card,self.game.active_round.active_trick.plays)):
                 obs[card_index] = 1
             # in the player's hand is a .5
             if card in self.game.active_round.active_player.hand:
@@ -95,32 +97,31 @@ class HundredAndTenEnv(Env):
                 obs[card_index] = -1
 
         # current bid amount observation
-        np.append(obs, (self.game.active_round.active_bid or 0) / MAX_BID)
+        obs = np.append(obs, (self.game.active_round.active_bid or 0) / MAX_BID)
 
         # current bidding player observation
-        np.append(obs, ((self.current_player_num - int(active_bidder.identifier)) % 2) / 2 if active_bidder else -1)
+        obs = np.append(obs, ((self.current_player_num - int(active_bidder.identifier)) % 2) / 2 if active_bidder else -1)
 
         # current trick scores observation
         scores = self.game.active_round.scores
-        np.append(obs, sum(map(lambda s: s.value, [score for score in scores if score.identifier == '0'])) / MAX_TRICK_SCORE)
-        np.append(obs, sum(map(lambda s: s.value, [score for score in scores if score.identifier == '1'])) / MAX_TRICK_SCORE)
-        np.append(obs, sum(map(lambda s: s.value, [score for score in scores if score.identifier == '2'])) / MAX_TRICK_SCORE)
-        np.append(obs, sum(map(lambda s: s.value, [score for score in scores if score.identifier == '3'])) / MAX_TRICK_SCORE)
-
+        obs = np.append(obs, sum(map(lambda s: s.value, [score for score in scores if score.identifier == '0'])) / MAX_TRICK_SCORE)
+        obs = np.append(obs, sum(map(lambda s: s.value, [score for score in scores if score.identifier == '1'])) / MAX_TRICK_SCORE)
+        obs = np.append(obs, sum(map(lambda s: s.value, [score for score in scores if score.identifier == '2'])) / MAX_TRICK_SCORE)
+        obs = np.append(obs, sum(map(lambda s: s.value, [score for score in scores if score.identifier == '3'])) / MAX_TRICK_SCORE)
 
         # current game scores observation
         game_scores = self.game.scores
-        np.append(obs, game_scores['0'] / constants.WINNING_SCORE)
-        np.append(obs, game_scores['1'] / constants.WINNING_SCORE)
-        np.append(obs, game_scores['2'] / constants.WINNING_SCORE)
-        np.append(obs, game_scores['3'] / constants.WINNING_SCORE)
+        obs = np.append(obs, game_scores['0'] / constants.WINNING_SCORE)
+        obs = np.append(obs, game_scores['1'] / constants.WINNING_SCORE)
+        obs = np.append(obs, game_scores['2'] / constants.WINNING_SCORE)
+        obs = np.append(obs, game_scores['3'] / constants.WINNING_SCORE)
 
         # trump observation
         trump = self.game.active_round.trump
-        np.append(obs, trump.value / 4 if trump else -1)
+        obs = np.append(obs, trump.value / 4 if trump else -1)
 
         # all legal actions observation
-        np.append(obs, self.legal_actions)
+        obs = np.append(obs, self.legal_actions)
 
         return obs
 
@@ -129,13 +130,20 @@ class HundredAndTenEnv(Env):
         legal_actions = np.zeros(TOTAL_AVAILABLE_ACTIONS)
         status = self.game.status
 
+        if self.done:
+            return legal_actions
+
+        active_player_trump_cards = [
+            card for card in self.game.active_round.active_player.hand
+            if card.suit == self.game.active_round.trump or card.always_trump]
+
         # check if playing each card is legal
         for card_index in range(len(deck.cards)):
             card = deck.cards[card_index]
             # playing a card is only legal in the trick stage and for cards the player has in hand
             if status == RoundStatus.TRICKS and card in self.game.active_round.active_player.hand:
-                # additionally, if the trick is bleeding, the card must NOT be bleeding OR the card must be trump
-                if not self.game.active_round.active_trick.bleeding or (card.suit == self.game.active_round.trump or card.always_trump):
+                # additionally, if the trick is bleeding, the card must be trump or the player must have no trumps
+                if not self.game.active_round.active_trick.bleeding or not active_player_trump_cards or card in active_player_trump_cards:
                     legal_actions[card_index] = 1
 
         # check if all the static actions are legal
@@ -147,10 +155,10 @@ class HundredAndTenEnv(Env):
 
         legal_actions[StaticActions.PASS.value] = bidding and BidAmount.PASS in available_bids
         legal_actions[StaticActions.FIFTEEN.value] = bidding and BidAmount.FIFTEEN in available_bids
-        legal_actions[StaticActions.TWENTY.value] = bidding and BidAmount.TWENTY in available_bids
-        legal_actions[StaticActions.TWENTY_FIVE.value] = bidding and BidAmount.TWENTY_FIVE in available_bids
-        legal_actions[StaticActions.THIRTY.value] = bidding and BidAmount.THIRTY in available_bids
-        legal_actions[StaticActions.SHOOT_THE_MOON.value] = bidding and BidAmount.SHOOT_THE_MOON in available_bids
+        legal_actions[StaticActions.TWENTY.value] = bidding and BidAmount.TWENTY in available_bids and self.game.active_round.active_bid == BidAmount.FIFTEEN
+        legal_actions[StaticActions.TWENTY_FIVE.value] = bidding and BidAmount.TWENTY_FIVE in available_bids and self.game.active_round.active_bid == BidAmount.TWENTY
+        legal_actions[StaticActions.THIRTY.value] = bidding and BidAmount.THIRTY in available_bids and self.game.active_round.active_bid == BidAmount.TWENTY_FIVE
+        legal_actions[StaticActions.SHOOT_THE_MOON.value] = 0 # bidding and BidAmount.SHOOT_THE_MOON in available_bids
         
         # select trump actions are only available if the stage is trump selection
         selecting_trump = status == RoundStatus.TRUMP_SELECTION
@@ -169,14 +177,14 @@ class HundredAndTenEnv(Env):
 
         reward = [0] * self.n_players
 
-        if not isinstance(action, int) or not self.legal_actions[action]:
+        if not self.legal_actions[action]:
             reward = [1.0/(self.n_players-1)] * self.n_players
             reward[self.current_player_num] = -1
             return self.observation, reward, True, {}
         
         # play a card action
-        if action < len(deck.cards):
-            self.game.act(Play(str(self.current_player_num), deck.cards[action]))
+        if action < len(deck.cards):  # type: ignore action will be comparable
+            self.game.act(Play(str(self.current_player_num), deck.cards[action])) # type: ignore action will be comparable
         
         # bid action
         if action == StaticActions.PASS:
@@ -208,7 +216,7 @@ class HundredAndTenEnv(Env):
 
         winner = self.game.winner
         self.done = bool(winner)
-        self.current_player_num = int(self.game.active_round.active_player.identifier)
+        self.current_player_num = int(self.game.active_round.active_player.identifier) if not self.done else 0
 
         scores = self.game.scores
 
@@ -232,6 +240,10 @@ class HundredAndTenEnv(Env):
         self.game.join('3')
         self.game.start_game()
 
+        self.current_player_num = int(self.game.active_round.active_player.identifier)
+
+        self.done = False
+
         logger.debug(f'\n\n---- NEW GAME ----')
         return self.observation
 
@@ -243,23 +255,35 @@ class HundredAndTenEnv(Env):
 
         status = self.game.status
         active_bid = self.game.active_round.active_bid
+        active_bidder = self.game.active_round.active_bidder
 
         logger.debug(f'\n\n-------STATUS {status}-----------')
-        logger.debug(f"\nIt is Player {self.current_player_num}'s turn to play")
+        logger.debug(f"It is Player {self.current_player_num}'s turn to play")
 
         if status != GameStatus.WON:
-            logger.debug(f'\nActive Bid: {active_bid if active_bid else "N/A"}')
-            logger.debug(f'\nActive Bidder: {self.game.active_round.active_bidder}')
+            logger.debug(f'Active Bid: {active_bid if active_bid else "N/A"}')
+            logger.debug(f'Active Bidder: {active_bidder.identifier if active_bidder else "N/A"}')
+            logger.debug(f'Trump: {self.game.active_round.trump if self.game.active_round.trump else "N/A"}')
 
-            logger.debug(f'\nPlayer {self.current_player_num}\'s hand')
+
+
+            if (self.game.status == RoundStatus.TRICKS):
+                logger.debug(f'Played cards: {self.game.active_round.active_trick.plays}')
+                logger.debug(f'Bleeding: {self.game.active_round.active_trick.bleeding}')
+
+
+
+            logger.debug(f'Player {self.current_player_num}\'s hand')
             for card in self.game.active_round.active_player.hand:
-                logger.debug(f'\n{card.number.name} of {card.suit.name} (#{deck.cards.index(card)})')
+                logger.debug(f'{card.number.name} of {card.suit.name} (#{deck.cards.index(card)})')
+
+            logger.debug(f'Current scores: {self.game.scores}')
         else:
-            logger.debug(f'\nWinner: {self.game.winner}')
-            logger.debug(f'\nFinal Scores: {self.game.scores}')
+            logger.debug(f'Winner: {self.game.winner}')
+            logger.debug(f'Final Scores: {self.game.scores}')
         
         if not self.done:
-            logger.debug(f'\nLegal actions: {[i for i,o in enumerate(self.legal_actions) if o != 0]}')
+            logger.debug(f'Legal actions: {[i for i,o in enumerate(self.legal_actions) if o != 0]}')
 
     def rules_move(self):
         raise Exception('Rules based agent is not yet implemented for Sushi Go!')
