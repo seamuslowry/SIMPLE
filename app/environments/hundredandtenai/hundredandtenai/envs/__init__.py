@@ -1,1 +1,1 @@
-from app.environments.hundredandtenai.hundredandtenai.envs.hundredandtenai import HundredAndTenEnv
+from hundredandtenai.envs.hundredandtenai import HundredAndTenEnv
