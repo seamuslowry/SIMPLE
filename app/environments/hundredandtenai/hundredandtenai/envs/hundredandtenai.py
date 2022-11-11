@@ -71,6 +71,15 @@ class HundredAndTenEnv(Env):
         self.verbose = verbose
         self.done = False
 
+        self.game_number = 0
+
+        self.cached_player_scores = {
+            '0': 0,
+            '1': 0,
+            '2': 0,
+            '3': 0
+        }
+
         
     @property
     def observation(self):
@@ -104,17 +113,29 @@ class HundredAndTenEnv(Env):
 
         # current trick scores observation
         scores = self.game.active_round.scores
-        obs = np.append(obs, sum(map(lambda s: s.value, [score for score in scores if score.identifier == '0'])) / MAX_TRICK_SCORE)
-        obs = np.append(obs, sum(map(lambda s: s.value, [score for score in scores if score.identifier == '1'])) / MAX_TRICK_SCORE)
-        obs = np.append(obs, sum(map(lambda s: s.value, [score for score in scores if score.identifier == '2'])) / MAX_TRICK_SCORE)
-        obs = np.append(obs, sum(map(lambda s: s.value, [score for score in scores if score.identifier == '3'])) / MAX_TRICK_SCORE)
+
+        round_score_change = {
+            '0': sum(map(lambda s: s.value, [score for score in scores if score.identifier == '0'])),
+            '1': sum(map(lambda s: s.value, [score for score in scores if score.identifier == '1'])),
+            '2': sum(map(lambda s: s.value, [score for score in scores if score.identifier == '2'])),
+            '3': sum(map(lambda s: s.value, [score for score in scores if score.identifier == '3']))
+        }
+
+        obs = np.append(obs, round_score_change['0'] / MAX_TRICK_SCORE)
+        obs = np.append(obs, round_score_change['1'] / MAX_TRICK_SCORE)
+        obs = np.append(obs, round_score_change['2'] / MAX_TRICK_SCORE)
+        obs = np.append(obs, round_score_change['3'] / MAX_TRICK_SCORE)
+
+        self.cached_player_scores['0'] += round_score_change['0']
+        self.cached_player_scores['1'] += round_score_change['1']
+        self.cached_player_scores['2'] += round_score_change['2']
+        self.cached_player_scores['3'] += round_score_change['3']
 
         # current game scores observation
-        game_scores = self.game.scores
-        obs = np.append(obs, game_scores['0'] / constants.WINNING_SCORE)
-        obs = np.append(obs, game_scores['1'] / constants.WINNING_SCORE)
-        obs = np.append(obs, game_scores['2'] / constants.WINNING_SCORE)
-        obs = np.append(obs, game_scores['3'] / constants.WINNING_SCORE)
+        obs = np.append(obs, self.cached_player_scores['0'] / constants.WINNING_SCORE)
+        obs = np.append(obs, self.cached_player_scores['1'] / constants.WINNING_SCORE)
+        obs = np.append(obs, self.cached_player_scores['2'] / constants.WINNING_SCORE)
+        obs = np.append(obs, self.cached_player_scores['3'] / constants.WINNING_SCORE)
 
         # trump observation
         trump = self.game.active_round.trump
@@ -155,9 +176,9 @@ class HundredAndTenEnv(Env):
 
         legal_actions[StaticActions.PASS.value] = bidding and BidAmount.PASS in available_bids
         legal_actions[StaticActions.FIFTEEN.value] = bidding and BidAmount.FIFTEEN in available_bids
-        legal_actions[StaticActions.TWENTY.value] = bidding and BidAmount.TWENTY in available_bids and self.game.active_round.active_bid == BidAmount.FIFTEEN
-        legal_actions[StaticActions.TWENTY_FIVE.value] = bidding and BidAmount.TWENTY_FIVE in available_bids and self.game.active_round.active_bid == BidAmount.TWENTY
-        legal_actions[StaticActions.THIRTY.value] = bidding and BidAmount.THIRTY in available_bids and self.game.active_round.active_bid == BidAmount.TWENTY_FIVE
+        legal_actions[StaticActions.TWENTY.value] = 0 # bidding and BidAmount.TWENTY in available_bids
+        legal_actions[StaticActions.TWENTY_FIVE.value] = 0 # bidding and BidAmount.TWENTY_FIVE in available_bids
+        legal_actions[StaticActions.THIRTY.value] = 0 # bidding and BidAmount.THIRTY in available_bids
         legal_actions[StaticActions.SHOOT_THE_MOON.value] = 0 # bidding and BidAmount.SHOOT_THE_MOON in available_bids
         
         # select trump actions are only available if the stage is trump selection
@@ -212,21 +233,28 @@ class HundredAndTenEnv(Env):
 
         # discard action
         if action == StaticActions.DISCARD:
-            self.game.act(Discard(str(self.current_player_num), [card for card in self.game.active_round.active_player.hand if (card.suit != self.game.active_round.trump or not card.always_trump)]))
+            self.game.act(Discard(str(self.current_player_num), [card for card in self.game.active_round.active_player.hand if not (card.suit == self.game.active_round.trump or card.always_trump)]))
 
-        winner = self.game.winner
-        self.done = bool(winner)
+        status = self.game.status
+        won = status == GameStatus.WON
+        too_long = len(self.game.rounds) > 100
+
+        self.done = too_long or won or all([v < 0 for v in self.cached_player_scores.values()]) # end game and give bad reward if all players go negative
         self.current_player_num = int(self.game.active_round.active_player.identifier) if not self.done else 0
 
-        scores = self.game.scores
+        if self.game.rounds and self.game.rounds[-1].status == RoundStatus.COMPLETED_NO_BIDDERS:
+            reward = [-1] * 4
 
-        reward[0] = scores['0']
-        reward[1] = scores['1']
-        reward[2] = scores['2']
-        reward[3] = scores['3']
+        if too_long:
+            reward = [-60] * 4
 
-        if winner:
-            reward[int(winner.identifier)] += 60
+        if won:
+            scores = self.game.scores
+            reward[0] = scores['0']
+            reward[1] = scores['1']
+            reward[2] = scores['2']
+            reward[3] = scores['3']
+            reward[int(self.game.winner.identifier)] += 60  # type: ignore if won, there will be a winner
 
         return self.observation, reward, self.done, {}
 
@@ -242,6 +270,15 @@ class HundredAndTenEnv(Env):
 
         self.current_player_num = int(self.game.active_round.active_player.identifier)
 
+        self.cached_player_scores = {
+            '0': 0,
+            '1': 0,
+            '2': 0,
+            '3': 0
+        }
+
+        self.game_number += 1
+
         self.done = False
 
         logger.debug(f'\n\n---- NEW GAME ----')
@@ -254,36 +291,42 @@ class HundredAndTenEnv(Env):
             return
 
         status = self.game.status
-        active_bid = self.game.active_round.active_bid
-        active_bidder = self.game.active_round.active_bidder
+        # active_bid = self.game.active_round.active_bid
+        # active_bidder = self.game.active_round.active_bidder
 
-        logger.debug(f'\n\n-------STATUS {status}-----------')
-        logger.debug(f"It is Player {self.current_player_num}'s turn to play")
+        logger.debug(f'\n\n-------Game {self.game_number} is in {status} playing round {len(self.game.rounds)}-----------')
+        # logger.debug(f"It is Player {self.current_player_num}'s turn to play")
 
-        if status != GameStatus.WON:
-            logger.debug(f'Active Bid: {active_bid if active_bid else "N/A"}')
-            logger.debug(f'Active Bidder: {active_bidder.identifier if active_bidder else "N/A"}')
-            logger.debug(f'Trump: {self.game.active_round.trump if self.game.active_round.trump else "N/A"}')
+        # if status != GameStatus.WON:
+            # logger.debug(f'Active Bid: {active_bid if active_bid else "N/A"}')
+            # logger.debug(f'Active Bidder: {active_bidder.identifier if active_bidder else "N/A"}')
+            # logger.debug(f'Trump: {self.game.active_round.trump if self.game.active_round.trump else "N/A"}')
+
+            # logger.debug(f'Discards:')
+            # for discard in self.game.active_round.discards:
+            #     logger.debug(f'Player {discard.identifier} discarded:')
+            #     for card in discard.cards:
+            #         logger.debug(f'{card.number.name} of {card.suit.name} (#{deck.cards.index(card)})')
+
+            # if (self.game.status == RoundStatus.TRICKS):
+            #     logger.debug(f'Played cards: {self.game.active_round.active_trick.plays}')
+            #     logger.debug(f'Bleeding: {self.game.active_round.active_trick.bleeding}')
 
 
 
-            if (self.game.status == RoundStatus.TRICKS):
-                logger.debug(f'Played cards: {self.game.active_round.active_trick.plays}')
-                logger.debug(f'Bleeding: {self.game.active_round.active_trick.bleeding}')
+            # logger.debug(f'Player {self.current_player_num}\'s hand')
+            # for card in self.game.active_round.active_player.hand:
+            #     logger.debug(f'{card.number.name} of {card.suit.name} (#{deck.cards.index(card)})')
 
-
-
-            logger.debug(f'Player {self.current_player_num}\'s hand')
-            for card in self.game.active_round.active_player.hand:
-                logger.debug(f'{card.number.name} of {card.suit.name} (#{deck.cards.index(card)})')
-
-            logger.debug(f'Current scores: {self.game.scores}')
-        else:
+            # logger.debug(f'Current scores: {self.game.scores}')
+        # else:
+        if self.done:
+            logger.debug(f'Game Ended')
             logger.debug(f'Winner: {self.game.winner}')
             logger.debug(f'Final Scores: {self.game.scores}')
         
-        if not self.done:
-            logger.debug(f'Legal actions: {[i for i,o in enumerate(self.legal_actions) if o != 0]}')
+        # if not self.done:
+        #     logger.debug(f'Legal actions: {[i for i,o in enumerate(self.legal_actions) if o != 0]}')
 
     def rules_move(self):
         raise Exception('Rules based agent is not yet implemented for Sushi Go!')
